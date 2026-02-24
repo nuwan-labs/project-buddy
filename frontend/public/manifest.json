@@ -1,0 +1,12 @@
+{
+  "name": "Project Buddy",
+  "short_name": "ProjectBuddy",
+  "description": "Lab Notebook & Biweekly Project Tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#3b82f6",
+  "background_color": "#ffffff",
+  "icons": [
+    { "src": "/vite.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
