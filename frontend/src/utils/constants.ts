@@ -5,7 +5,7 @@ export const WS_URL   = `ws://${window.location.host}/ws/notifications`
 
 // ─── Status options ───────────────────────────────────────────────────────────
 export const PLAN_STATUSES     = ["Active", "Completed", "Paused", "Archived"] as const
-export const PROJECT_STATUSES  = ["Not Started", "In Progress", "Blocked", "Complete"] as const
+export const PROJECT_STATUSES  = ["Active", "On Hold", "Complete", "Archived"] as const
 export const ACTIVITY_STATUSES = ["Not Started", "In Progress", "Complete"] as const
 
 // ─── Status colours (Tailwind classes) ───────────────────────────────────────
@@ -17,10 +17,10 @@ export const PLAN_STATUS_COLORS: Record<string, string> = {
 }
 
 export const PROJECT_STATUS_COLORS: Record<string, string> = {
-  "Not Started": "bg-gray-100 text-gray-600",
-  "In Progress": "bg-blue-100 text-blue-800",
-  "Blocked":     "bg-red-100 text-red-800",
-  "Complete":    "bg-green-100 text-green-800",
+  "Active":   "bg-blue-100 text-blue-800",
+  "On Hold":  "bg-yellow-100 text-yellow-800",
+  "Complete": "bg-green-100 text-green-800",
+  "Archived": "bg-gray-100 text-gray-600",
 }
 
 export const ACTIVITY_STATUS_COLORS: Record<string, string> = {

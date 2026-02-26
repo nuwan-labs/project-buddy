@@ -26,9 +26,8 @@ def get_dashboard(db: Session = Depends(get_db)):
     - Daily DeepSeek summary (if generated for today)
     """
     data = crud.get_dashboard_data(db)
-
-    # Build project summaries using helpers (projects already enriched in crud)
-    # The crud function returns raw dicts; convert datetime objects for JSON
+    if data.get("daily_summary") is not None:
+        data["daily_summary"] = build_daily_summary(data["daily_summary"])
     return {"success": True, "data": data}
 
 

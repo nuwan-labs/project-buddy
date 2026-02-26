@@ -1,7 +1,8 @@
 import type { ReactNode } from "react"
 import Header from "@/components/Header"
 import Sidebar from "@/components/Sidebar"
-import ActivityPopup from "@/components/ActivityPopup"
+import ActivityPopup  from "@/components/ActivityPopup"
+import DailyNotePopup from "@/components/DailyNotePopup"
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
@@ -13,8 +14,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
-      {/* ActivityPopup is globally mounted so it can open from any context */}
+      {/* Global popups — mounted once so they can open from any context */}
       <ActivityPopup />
+      <DailyNotePopup />
     </div>
   )
 }

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     popup_start_hour: int = 8
     popup_start_minute: int = 30
     popup_end_hour: int = 17
+    daily_note_hour: int = 16
+    daily_note_minute: int = 55
     analysis_hour: int = 17
     analysis_minute: int = 0
 

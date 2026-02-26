@@ -14,7 +14,7 @@ import { activitiesApi, logsApi, projectsApi } from "@/services/api"
 import { useToast }          from "@/components/ui/use-toast"
 import { nowWithOffset }     from "@/utils/formatting"
 import { DEFAULT_DURATION, MAX_DURATION_MINUTES } from "@/utils/constants"
-import type { Activity }     from "@/types"
+import type { Activity, Project }     from "@/types"
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
@@ -41,18 +41,35 @@ export default function ActivityPopup() {
   const { toast } = useToast()
 
   const [form, setForm]             = useState<FormState>(EMPTY)
+  const [projects, setProjects]     = useState<Project[]>([])
   const [activities, setActivities] = useState<Activity[]>([])
-  const [loadingActs, setLoadingActs] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
+  const [loadingProjects, setLoadingProjects] = useState(false)
+  const [loadingActs, setLoadingActs]         = useState(false)
+  const [submitting, setSubmitting]           = useState(false)
+
+  // Load active projects when popup opens
+  useEffect(() => {
+    if (!state.showActivityPopup) {
+      setForm(EMPTY)
+      setActivities([])
+      setProjects([])
+      return
+    }
+
+    setLoadingProjects(true)
+    projectsApi
+      .list({ status: "Active" })
+      .then(({ data }) => {
+        setProjects(data.data.projects)
+      })
+      .catch(() => setProjects([]))
+      .finally(() => setLoadingProjects(false))
+  }, [state.showActivityPopup])
 
   // Pre-select project when popup opens with a preselected project
   useEffect(() => {
     if (state.showActivityPopup && state.preselectedProjectId !== null) {
       setForm((f) => ({ ...f, projectId: String(state.preselectedProjectId) }))
-    }
-    if (!state.showActivityPopup) {
-      setForm(EMPTY)
-      setActivities([])
     }
   }, [state.showActivityPopup, state.preselectedProjectId])
 
@@ -93,10 +110,6 @@ export default function ActivityPopup() {
       toast({ title: `Duration must be 1–${MAX_DURATION_MINUTES} minutes`, variant: "destructive" })
       return
     }
-    if (!state.activePlan) {
-      toast({ title: "No active plan — create one first", variant: "destructive" })
-      return
-    }
     if (!form.projectId) {
       toast({ title: "Please select a project", variant: "destructive" })
       return
@@ -106,24 +119,24 @@ export default function ActivityPopup() {
     try {
       let resolvedProjectId = Number(form.projectId)
 
-      // Create ad-hoc project on the fly
+      // Create ad-hoc project on the fly (standalone, no plan required)
       if (form.projectId === "adhoc") {
         if (!form.adhocName.trim()) {
           toast({ title: "Please enter a project name", variant: "destructive" })
           return
         }
-        const { data: pr } = await projectsApi.create(state.activePlan.id, {
+        const { data: pr } = await projectsApi.create({
           name:        `Ad-hoc: ${form.adhocName.trim()}`,
           description: "",
           goal:        "",
           color_tag:   "#888888",
-          status:      "In Progress",
+          status:      "Active",
         })
         resolvedProjectId = pr.data.id
       }
 
       await logsApi.create({
-        biweekly_plan_id: state.activePlan.id,
+        biweekly_plan_id: state.activePlan?.id ?? null,
         project_id:       resolvedProjectId,
         activity_id:      form.activityId && form.activityId !== "none"
           ? Number(form.activityId)
@@ -157,12 +170,13 @@ export default function ActivityPopup() {
             <Select
               value={form.projectId}
               onValueChange={(v) => set("projectId", v)}
+              disabled={loadingProjects}
             >
               <SelectTrigger id="pp-project">
-                <SelectValue placeholder="Select a project…" />
+                <SelectValue placeholder={loadingProjects ? "Loading…" : "Select a project…"} />
               </SelectTrigger>
               <SelectContent>
-                {state.projects.map((p) => (
+                {projects.map((p) => (
                   <SelectItem key={p.id} value={String(p.id)}>
                     {p.name}
                   </SelectItem>

@@ -9,23 +9,21 @@ import { formatHours } from "@/utils/formatting"
 
 interface ProjectCardProps {
   project:    Project
-  planId:     number
   onLogTime:  (projectId: number) => void
 }
 
 function variantFor(status: Project["status"]): "blue" | "green" | "red" | "yellow" {
-  if (status === "Complete")    return "green"
-  if (status === "Blocked")     return "red"
-  if (status === "In Progress") return "blue"
+  if (status === "Complete") return "green"
+  if (status === "On Hold")  return "yellow"
   return "blue"
 }
 
-export default function ProjectCard({ project, planId, onLogTime }: ProjectCardProps) {
+export default function ProjectCard({ project, onLogTime }: ProjectCardProps) {
   const navigate   = useNavigate()
   const completion = project.completion_percent ?? 0
   const hours      = project.hours_logged ?? 0
-  const total      = project.activity_count ?? 0
-  const done       = project.completed_activities ?? 0
+  const total      = project.activities_count ?? 0
+  const done       = project.completed_count ?? 0
   const badgeClass = PROJECT_STATUS_COLORS[project.status] ?? ""
 
   return (
@@ -71,7 +69,7 @@ export default function ProjectCard({ project, planId, onLogTime }: ProjectCardP
             size="sm"
             variant="outline"
             className="flex-1 text-xs h-8"
-            onClick={() => navigate(`/plans/${planId}/projects/${project.id}`)}
+            onClick={() => navigate(`/projects/${project.id}`)}
           >
             View Details
           </Button>

@@ -11,10 +11,15 @@ import type {
   ProjectsResponse,
   ActivitiesResponse,
   LogsResponse,
+  SprintActivitiesResponse,
+  SprintActivity,
+  DailyNotesResponse,
+  ProjectDailyNote,
   PlanFormData,
   ProjectFormData,
   ActivityFormData,
   LogFormData,
+  DailyNoteFormData,
 } from "@/types"
 
 const http = axios.create({
@@ -47,14 +52,17 @@ export const plansApi = {
     http.get(`/biweekly-plans/${id}/export-excel`, { responseType: "blob" }),
 }
 
-// ─── Projects ─────────────────────────────────────────────────────────────────
+// ─── Projects (standalone — no plan ownership) ────────────────────────────────
 
 export const projectsApi = {
-  list: (planId: number) =>
-    http.get<ApiResponse<ProjectsResponse>>(`/biweekly-plans/${planId}/projects`),
+  list: (params?: { status?: string }) =>
+    http.get<ApiResponse<ProjectsResponse>>("/projects", { params }),
 
-  create: (planId: number, data: ProjectFormData) =>
-    http.post<ApiResponse<Project>>(`/biweekly-plans/${planId}/projects`, data),
+  get: (id: number) =>
+    http.get<ApiResponse<Project>>(`/projects/${id}`),
+
+  create: (data: ProjectFormData) =>
+    http.post<ApiResponse<Project>>("/projects", data),
 
   update: (id: number, data: Partial<ProjectFormData>) =>
     http.put<ApiResponse<Project>>(`/projects/${id}`, data),
@@ -79,13 +87,26 @@ export const activitiesApi = {
     http.delete<ApiResponse<null>>(`/activities/${id}`),
 }
 
+// ─── Sprint Activities ────────────────────────────────────────────────────────
+
+export const sprintActivitiesApi = {
+  list: (planId: number) =>
+    http.get<ApiResponse<SprintActivitiesResponse>>(`/biweekly-plans/${planId}/sprint-activities`),
+
+  add: (planId: number, data: { activity_id: number; notes?: string }) =>
+    http.post<ApiResponse<SprintActivity>>(`/biweekly-plans/${planId}/sprint-activities`, data),
+
+  remove: (planId: number, activityId: number) =>
+    http.delete<ApiResponse<null>>(`/biweekly-plans/${planId}/sprint-activities/${activityId}`),
+}
+
 // ─── Activity Logs ────────────────────────────────────────────────────────────
 
 export const logsApi = {
   list: (params?: {
     date?: string
     project_id?: number
-    biweekly_plan_id?: number
+    plan_id?: number
     sort?: string
   }) => http.get<ApiResponse<LogsResponse>>("/activity-logs", { params }),
 
@@ -97,6 +118,22 @@ export const logsApi = {
 
   delete: (id: number) =>
     http.delete<ApiResponse<null>>(`/activity-logs/${id}`),
+}
+
+// ─── Project Daily Notes ──────────────────────────────────────────────────────
+
+export const dailyNotesApi = {
+  list: (params?: { project_id?: number; date?: string; plan_id?: number }) =>
+    http.get<ApiResponse<DailyNotesResponse>>("/project-notes", { params }),
+
+  upsert: (data: DailyNoteFormData) =>
+    http.post<ApiResponse<ProjectDailyNote>>("/project-notes", data),
+
+  update: (id: number, data: { what_i_did?: string; blockers?: string; next_steps?: string }) =>
+    http.put<ApiResponse<ProjectDailyNote>>(`/project-notes/${id}`, data),
+
+  delete: (id: number) =>
+    http.delete<ApiResponse<null>>(`/project-notes/${id}`),
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -117,6 +154,11 @@ export const deepseekApi = {
 
   getSummary: (date: string) =>
     http.get<ApiResponse<DailySummary>>("/deepseek/daily-summary", { params: { date } }),
+
+  status: () =>
+    http.get<ApiResponse<{ reachable: boolean; model: string | null; message: string | null }>>(
+      "/deepseek/status"
+    ),
 }
 
 // ─── Health ───────────────────────────────────────────────────────────────────

@@ -1,14 +1,18 @@
 """
 APScheduler background jobs:
 
-  hourly_popup_job   — Mon–Fri, :30 past each hour from popup_start_hour to
-                       popup_end_hour (Asia/Colombo).  Broadcasts a WebSocket
-                       message to every connected client so the frontend can
-                       show the Activity Log popup.
+  hourly_popup_job       — Mon–Fri, :30 past each hour from popup_start_hour to
+                           popup_end_hour (Asia/Colombo).  Broadcasts a WebSocket
+                           message to every connected client so the frontend can
+                           show the Activity Log popup.
 
-  daily_analysis_job — Mon–Fri at analysis_hour:analysis_minute.  Fetches
-                       today's activity logs, calls Ollama DeepSeek R1, and
-                       persists the result in daily_summaries.
+  daily_note_prompt_job  — Mon–Fri at daily_note_hour:daily_note_minute (default 16:55).
+                           Broadcasts a WebSocket message prompting Ajantha to fill in
+                           today's per-project lab-notebook notes.
+
+  daily_analysis_job     — Mon–Fri at analysis_hour:analysis_minute (default 17:00).
+                           Fetches today's activity logs, calls Ollama DeepSeek R1, and
+                           persists the result in daily_summaries.
 
 APScheduler runs in a daemon background thread.  To broadcast WebSocket
 messages from that thread we use asyncio.run_coroutine_threadsafe() with the
@@ -56,6 +60,22 @@ def hourly_popup_job() -> None:
         "type":    "notification",
         "action":  "SHOW_ACTIVITY_POPUP",
         "message": "What are you working on right now?",
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job: daily note prompt (fires before analysis)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def daily_note_prompt_job() -> None:
+    """Prompt Ajantha to fill in today's per-project lab-notebook notes."""
+    today = date.today().isoformat()
+    logger.info("📓 Daily note prompt job fired for %s.", today)
+    _broadcast_sync({
+        "type":   "notification",
+        "action": "SHOW_DAILY_NOTE_PROMPT",
+        "data":   {"date": today},
+        "message": "Time to write today's lab notes! What did you accomplish?",
     })
 
 
@@ -119,12 +139,7 @@ def daily_analysis_job() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def start_scheduler(loop: asyncio.AbstractEventLoop | None = None) -> None:
-    """Configure and start the background scheduler.
-
-    Args:
-        loop: The running asyncio event loop (from FastAPI startup).
-              Required for WebSocket broadcasts from scheduler threads.
-    """
+    """Configure and start the background scheduler."""
     global _event_loop
     if loop is not None:
         _event_loop = loop
@@ -142,7 +157,21 @@ def start_scheduler(loop: asyncio.AbstractEventLoop | None = None) -> None:
         ),
         id                = "hourly_popup",
         replace_existing  = True,
-        misfire_grace_time= 300,   # tolerate up to 5 min late
+        misfire_grace_time= 300,
+    )
+
+    # ── Daily note prompt (Mon–Fri at daily_note_hour:daily_note_minute) ─────
+    _scheduler.add_job(
+        daily_note_prompt_job,
+        CronTrigger(
+            hour         = str(settings.daily_note_hour),
+            minute       = str(settings.daily_note_minute),
+            day_of_week  = "mon-fri",
+            timezone     = tz,
+        ),
+        id                = "daily_note_prompt",
+        replace_existing  = True,
+        misfire_grace_time= 600,
     )
 
     # ── Daily analysis (Mon–Fri at analysis_hour:analysis_minute) ─────────────
@@ -162,9 +191,10 @@ def start_scheduler(loop: asyncio.AbstractEventLoop | None = None) -> None:
     if not _scheduler.running:
         _scheduler.start()
         logger.info(
-            "Scheduler started — TZ: %s | popup: %d:%02d | analysis: %d:%02d",
+            "Scheduler started — TZ: %s | popup: %d:%02d | note prompt: %d:%02d | analysis: %d:%02d",
             tz,
             settings.popup_start_hour, settings.popup_start_minute,
+            settings.daily_note_hour,  settings.daily_note_minute,
             settings.analysis_hour,    settings.analysis_minute,
         )
 

@@ -1,26 +1,25 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import Layout from "@/components/Layout"
-import { plansApi } from "@/services/api"
-import { usePlans } from "@/hooks/usePlans"
-import type { BiweeklyPlan } from "@/types"
-import { PLAN_STATUS_COLORS, PLAN_STATUSES } from "@/utils/constants"
-import { formatDate } from "@/utils/formatting"
+import { projectsApi } from "@/services/api"
+import { useProjects } from "@/hooks/useProjects"
+import { PROJECT_STATUS_COLORS, PROJECT_STATUSES } from "@/utils/constants"
+import { formatHours } from "@/utils/formatting"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/Notifications"
 
-export default function BiweeklyPlans() {
+export default function Projects() {
   const navigate = useNavigate()
   const [filter, setFilter]       = useState("all")
   const [confirmId, setConfirmId] = useState<number | null>(null)
 
-  const { plans, loading, reload } = usePlans(filter !== "all" ? filter : undefined)
+  const { projects, loading, reload } = useProjects(filter !== "all" ? filter : undefined)
 
   async function handleDelete(id: number) {
     try {
-      await plansApi.delete(id)
-      toast({ title: "Plan deleted." })
+      await projectsApi.delete(id)
+      toast({ title: "Project deleted." })
       setConfirmId(null)
       reload()
     } catch {
@@ -30,25 +29,11 @@ export default function BiweeklyPlans() {
 
   async function handleArchive(id: number) {
     try {
-      await plansApi.update(id, { status: "Archived" })
-      toast({ title: "Plan archived." })
+      await projectsApi.update(id, { status: "Archived" })
+      toast({ title: "Project archived." })
       reload()
     } catch {
       toast({ title: "Archive failed.", variant: "destructive" })
-    }
-  }
-
-  async function handleExport(plan: BiweeklyPlan) {
-    try {
-      const res = await plansApi.exportExcel(plan.id)
-      const url = URL.createObjectURL(new Blob([res.data as BlobPart]))
-      const a   = document.createElement("a")
-      a.href     = url
-      a.download = `${plan.name.replace(/\s+/g, "_")}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      toast({ title: "Export failed.", variant: "destructive" })
     }
   }
 
@@ -59,17 +44,17 @@ export default function BiweeklyPlans() {
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl font-bold">Biweekly Plans</h1>
+            <h1 className="text-xl font-bold">Projects</h1>
             <p className="text-sm text-muted-foreground">
-              {plans.length} plan{plans.length !== 1 ? "s" : ""}
+              {projects.length} project{projects.length !== 1 ? "s" : ""}
             </p>
           </div>
-          <Button onClick={() => navigate("/plans/new")}>+ New Plan</Button>
+          <Button onClick={() => navigate("/projects/new")}>+ New Project</Button>
         </div>
 
         {/* Status filter pills */}
         <div className="flex gap-2 mb-4 flex-wrap">
-          {(["all", ...PLAN_STATUSES] as string[]).map(s => (
+          {(["all", ...PROJECT_STATUSES] as string[]).map(s => (
             <button
               key={s}
               onClick={() => setFilter(s)}
@@ -87,11 +72,11 @@ export default function BiweeklyPlans() {
         {/* Content */}
         {loading ? (
           <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
-        ) : plans.length === 0 ? (
+        ) : projects.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
-            <p className="mb-3">No plans found.</p>
-            <Button variant="outline" onClick={() => navigate("/plans/new")}>
-              Create your first plan
+            <p className="mb-3">No projects found.</p>
+            <Button variant="outline" onClick={() => navigate("/projects/new")}>
+              Create your first project
             </Button>
           </div>
         ) : (
@@ -100,65 +85,83 @@ export default function BiweeklyPlans() {
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left px-4 py-2.5 font-medium">Name</th>
-                  <th className="text-left px-4 py-2.5 font-medium whitespace-nowrap">Period</th>
                   <th className="text-left px-4 py-2.5 font-medium">Status</th>
-                  <th className="text-right px-4 py-2.5 font-medium">Sprint Acts.</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Activities</th>
                   <th className="text-right px-4 py-2.5 font-medium">Done</th>
-
+                  <th className="text-right px-4 py-2.5 font-medium">Hours</th>
                   <th className="text-right px-4 py-2.5 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {plans.map(plan => (
-                  <tr key={plan.id} className="border-t hover:bg-muted/20">
+                {projects.map(project => (
+                  <tr key={project.id} className="border-t hover:bg-muted/20">
                     <td className="px-4 py-3">
-                      <span className="font-medium">{plan.name}</span>
-                      {plan.description && (
-                        <p className="text-xs text-muted-foreground truncate max-w-xs mt-0.5">
-                          {plan.description}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                      {formatDate(plan.start_date)} – {formatDate(plan.end_date)}
+                      <div className="flex items-center gap-2">
+                        {project.color_tag && (
+                          <div
+                            className="h-3 w-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: project.color_tag }}
+                          />
+                        )}
+                        <div>
+                          <span className="font-medium">{project.name}</span>
+                          {project.goal && (
+                            <p className="text-xs text-muted-foreground truncate max-w-xs mt-0.5">
+                              {project.goal}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
-                      <Badge className={PLAN_STATUS_COLORS[plan.status]}>{plan.status}</Badge>
+                      <Badge className={PROJECT_STATUS_COLORS[project.status]}>
+                        {project.status}
+                      </Badge>
                     </td>
-                    <td className="px-4 py-3 text-right">{plan.sprint_activity_count ?? "—"}</td>
                     <td className="px-4 py-3 text-right">
-                      {plan.overall_completion != null
-                        ? `${Math.round(plan.overall_completion)}%`
+                      {project.activities_count ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {project.completion_percent != null
+                        ? `${Math.round(project.completion_percent)}%`
                         : "—"}
                     </td>
-
+                    <td className="px-4 py-3 text-right">
+                      {project.hours_logged != null
+                        ? formatHours(project.hours_logged)
+                        : "—"}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1 justify-end flex-wrap">
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => navigate(`/plans/${plan.id}/edit`)}
+                          onClick={() => navigate(`/projects/${project.id}`)}
+                        >
+                          View
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate(`/projects/${project.id}/edit`)}
                         >
                           Edit
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => void handleExport(plan)}>
-                          xlsx
-                        </Button>
-                        {plan.status !== "Archived" && (
+                        {project.status !== "Archived" && (
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => void handleArchive(plan.id)}
+                            onClick={() => void handleArchive(project.id)}
                           >
                             Archive
                           </Button>
                         )}
-                        {confirmId === plan.id ? (
+                        {confirmId === project.id ? (
                           <>
                             <Button
                               size="sm"
                               variant="destructive"
-                              onClick={() => void handleDelete(plan.id)}
+                              onClick={() => void handleDelete(project.id)}
                             >
                               Confirm
                             </Button>
@@ -175,7 +178,7 @@ export default function BiweeklyPlans() {
                             size="sm"
                             variant="ghost"
                             className="text-red-600 hover:text-red-700"
-                            onClick={() => setConfirmId(plan.id)}
+                            onClick={() => setConfirmId(project.id)}
                           >
                             Delete
                           </Button>

@@ -80,11 +80,7 @@ async def trigger_daily_analysis(
 
     return {
         "success": True,
-        "data": {
-            "summary_id": summary.id,
-            "analysis_completed_at": summary.generated_at,
-            "summary": build_daily_summary(summary),
-        },
+        "data": build_daily_summary(summary),
         "message": "Daily analysis completed successfully.",
     }
 
@@ -92,6 +88,20 @@ async def trigger_daily_analysis(
 # ─────────────────────────────────────────────────────────────────────────────
 # Retrieve stored summary
 # ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/status")
+def get_ollama_status():
+    """Check whether the Ollama server is reachable and the model is loaded."""
+    try:
+        from app.services.ollama_client import check_ollama_health
+        result = check_ollama_health()
+        return {"success": True, "data": result}
+    except ImportError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Ollama client is not available.",
+        )
+
 
 @router.get("/daily-summary")
 def get_daily_summary(date: str = None, db: Session = Depends(get_db)):

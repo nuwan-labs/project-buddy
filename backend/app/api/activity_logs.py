@@ -26,13 +26,15 @@ async def create_log(data: schemas.ActivityLogCreate, db: Session = Depends(get_
     - Auto-transitions the activity from Not Started → In Progress on first log.
     - Broadcasts an 'activity_logged' WebSocket event to update the dashboard.
     """
-    # Validate that plan + project exist
-    plan = crud.get_plan(db, data.biweekly_plan_id)
-    if not plan:
-        raise HTTPException(status_code=404, detail=f"Plan {data.biweekly_plan_id} not found.")
-    project = crud.get_project(db, data.project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail=f"Project {data.project_id} not found.")
+    # Validate project exists; plan is optional
+    if data.biweekly_plan_id is not None:
+        plan = crud.get_plan(db, data.biweekly_plan_id)
+        if not plan:
+            raise HTTPException(status_code=404, detail=f"Plan {data.biweekly_plan_id} not found.")
+    if data.project_id is not None:
+        project = crud.get_project(db, data.project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail=f"Project {data.project_id} not found.")
 
     log = crud.create_activity_log(db, data)
 

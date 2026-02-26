@@ -1,7 +1,7 @@
 // ─── Core domain types ────────────────────────────────────────────────────────
 
 export type PlanStatus = "Active" | "Completed" | "Paused" | "Archived"
-export type ProjectStatus = "Not Started" | "In Progress" | "Blocked" | "Complete"
+export type ProjectStatus = "Active" | "On Hold" | "Complete" | "Archived"
 export type ActivityStatus = "Not Started" | "In Progress" | "Complete"
 
 export interface BiweeklyPlan {
@@ -13,18 +13,16 @@ export interface BiweeklyPlan {
   status: PlanStatus
   created_at: string
   updated_at: string
-  // summary-level extras (returned by list & active endpoints)
+  // summary-level extras
   days_remaining?: number
   overall_completion?: number
-  total_hours_logged?: number
-  project_count?: number
-  // detail-level extras (returned by /biweekly-plans/{id})
-  projects?: Project[]
+  sprint_activity_count?: number
+  // detail-level extras
+  sprint_activities?: SprintActivity[]
 }
 
 export interface Project {
   id: number
-  biweekly_plan_id: number
   name: string
   description: string | null
   goal: string | null
@@ -35,8 +33,9 @@ export interface Project {
   // computed
   completion_percent?: number
   hours_logged?: number
-  activity_count?: number
-  completed_activities?: number
+  activities_count?: number
+  completed_count?: number
+  hours_estimated?: number
   // detail-level
   activities?: Activity[]
 }
@@ -55,9 +54,33 @@ export interface Activity {
   updated_at: string
 }
 
+export interface SprintActivity {
+  id: number
+  plan_id: number
+  activity_id: number
+  notes: string | null
+  activity_name: string
+  project_id: number
+  project_name: string
+  created_at: string
+}
+
+export interface ProjectDailyNote {
+  id: number
+  project_id: number
+  plan_id: number | null
+  date: string              // YYYY-MM-DD
+  what_i_did: string | null
+  blockers: string | null
+  next_steps: string | null
+  project_name: string
+  created_at: string
+  updated_at: string
+}
+
 export interface ActivityLog {
   id: number
-  biweekly_plan_id: number
+  biweekly_plan_id: number | null
   project_id: number
   activity_id: number | null
   comment: string
@@ -86,13 +109,24 @@ export interface DailySummary {
 export interface TodaySummary {
   date: string
   total_hours_logged: number
-  log_count: number
-  projects_active: number
+  activities_logged: number
+  projects_worked_on: string[]
+}
+
+export interface ActivePlanOverview {
+  id: number
+  name: string
+  start_date: string
+  end_date: string
+  days_remaining: number
+  sprint_activity_count: number
+  overall_completion: number
 }
 
 export interface DashboardData {
-  active_plan: BiweeklyPlan | null
-  projects: Project[]
+  active_plan: ActivePlanOverview | null
+  projects: Project[]              // all Active projects
+  sprint_activities: SprintActivity[]
   today_summary: TodaySummary | null
   daily_summary: DailySummary | null
 }
@@ -124,6 +158,14 @@ export interface LogsResponse {
   logs: ActivityLog[]
   total_hours: number
   log_count: number
+}
+
+export interface SprintActivitiesResponse {
+  sprint_activities: SprintActivity[]
+}
+
+export interface DailyNotesResponse {
+  notes: ProjectDailyNote[]
 }
 
 // ─── WebSocket ────────────────────────────────────────────────────────────────
@@ -169,10 +211,19 @@ export interface ActivityFormData {
 }
 
 export interface LogFormData {
-  biweekly_plan_id: number
+  biweekly_plan_id?: number | null
   project_id: number
   activity_id: number | null
   comment: string
   duration_minutes: number
   timestamp: string
+}
+
+export interface DailyNoteFormData {
+  project_id: number
+  date: string
+  what_i_did: string
+  blockers: string
+  next_steps: string
+  plan_id?: number | null
 }

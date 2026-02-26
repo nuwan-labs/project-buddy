@@ -12,7 +12,10 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Activity, ActivityLog, BiweeklyPlan, DailySummary, Project
+from app.models import (
+    Activity, ActivityLog, BiweeklyPlan, DailySummary,
+    Project, ProjectDailyNote, SprintActivity,
+)
 from app.schemas import (
     ActivityCreate,
     ActivityLogCreate,
@@ -21,7 +24,10 @@ from app.schemas import (
     BiweeklyPlanCreate,
     BiweeklyPlanUpdate,
     ProjectCreate,
+    ProjectDailyNoteCreate,
+    ProjectDailyNoteUpdate,
     ProjectUpdate,
+    SprintActivityCreate,
 )
 
 
@@ -52,21 +58,24 @@ def _days_remaining(end_date_str: str) -> int:
         return 0
 
 
-def _overall_completion(projects: list[Project]) -> float:
-    total = sum(len(p.activities) for p in projects)
-    done = sum(1 for p in projects for a in p.activities if a.status == "Complete")
+def _overall_completion_from_sprint(db: Session, plan_id: int) -> float:
+    """Compute completion % based on sprint activities."""
+    sprint_acts = list_sprint_activities(db, plan_id)
+    if not sprint_acts:
+        return 0.0
+    total = len(sprint_acts)
+    done = sum(1 for sa in sprint_acts if sa.activity and sa.activity.status == "Complete")
     return round((done / total * 100) if total else 0.0, 1)
 
 
 def _auto_update_project_status(db: Session, project: Project) -> None:
-    """Mark project In Progress / Complete based on its activities."""
+    """Nudge project to Active when work has started; never auto-complete it."""
     if not project.activities:
         return
     statuses = {a.status for a in project.activities}
-    if statuses == {"Complete"}:
-        project.status = "Complete"
-    elif "In Progress" in statuses or "Complete" in statuses:
-        project.status = "In Progress"
+    if "In Progress" in statuses or "Complete" in statuses:
+        if project.status not in ("Complete", "On Hold", "Archived"):
+            project.status = "Active"
     db.flush()
 
 
@@ -86,7 +95,9 @@ def get_plan(db: Session, plan_id: int) -> Optional[BiweeklyPlan]:
     return (
         db.query(BiweeklyPlan)
         .options(
-            joinedload(BiweeklyPlan.projects).joinedload(Project.activities)
+            joinedload(BiweeklyPlan.sprint_activities)
+            .joinedload(SprintActivity.activity)
+            .joinedload(Activity.project)
         )
         .filter(BiweeklyPlan.id == plan_id)
         .first()
@@ -97,7 +108,9 @@ def get_active_plan(db: Session) -> Optional[BiweeklyPlan]:
     return (
         db.query(BiweeklyPlan)
         .options(
-            joinedload(BiweeklyPlan.projects).joinedload(Project.activities)
+            joinedload(BiweeklyPlan.sprint_activities)
+            .joinedload(SprintActivity.activity)
+            .joinedload(Activity.project)
         )
         .filter(BiweeklyPlan.status == "Active")
         .first()
@@ -140,18 +153,72 @@ def delete_plan(db: Session, plan_id: int) -> bool:
 
 
 def get_plan_summary_stats(db: Session, plan: BiweeklyPlan) -> dict:
-    """Return project_count and activity_count for a plan."""
-    project_count = len(plan.projects)
-    activity_count = sum(len(p.activities) for p in plan.projects)
-    return {"project_count": project_count, "activity_count": activity_count}
+    """Return sprint_activity_count for a plan."""
+    sprint_activity_count = (
+        db.query(func.count(SprintActivity.id))
+        .filter(SprintActivity.plan_id == plan.id)
+        .scalar()
+    ) or 0
+    return {"sprint_activity_count": sprint_activity_count}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SprintActivity CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+def add_sprint_activity(
+    db: Session, plan_id: int, data: SprintActivityCreate
+) -> SprintActivity:
+    sa = SprintActivity(
+        plan_id=plan_id,
+        activity_id=data.activity_id,
+        notes=data.notes,
+    )
+    db.add(sa)
+    db.commit()
+    db.refresh(sa)
+    return sa
+
+
+def remove_sprint_activity(db: Session, plan_id: int, activity_id: int) -> bool:
+    sa = (
+        db.query(SprintActivity)
+        .filter(SprintActivity.plan_id == plan_id, SprintActivity.activity_id == activity_id)
+        .first()
+    )
+    if not sa:
+        return False
+    db.delete(sa)
+    db.commit()
+    return True
+
+
+def list_sprint_activities(db: Session, plan_id: int) -> list[SprintActivity]:
+    return (
+        db.query(SprintActivity)
+        .options(
+            joinedload(SprintActivity.activity).joinedload(Activity.project)
+        )
+        .filter(SprintActivity.plan_id == plan_id)
+        .order_by(SprintActivity.id)
+        .all()
+    )
+
+
+def get_sprint_activity(db: Session, plan_id: int, activity_id: int) -> Optional[SprintActivity]:
+    return (
+        db.query(SprintActivity)
+        .filter(SprintActivity.plan_id == plan_id, SprintActivity.activity_id == activity_id)
+        .first()
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Project CRUD
 # ─────────────────────────────────────────────────────────────────────────────
 
-def create_project(db: Session, plan_id: int, data: ProjectCreate) -> Project:
-    project = Project(biweekly_plan_id=plan_id, **data.model_dump())
+def create_project(db: Session, data: ProjectCreate) -> Project:
+    project = Project(**data.model_dump())
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -167,14 +234,17 @@ def get_project(db: Session, project_id: int) -> Optional[Project]:
     )
 
 
-def list_projects(db: Session, plan_id: int) -> list[Project]:
-    return (
+def list_projects(
+    db: Session,
+    status: Optional[str] = None,
+) -> list[Project]:
+    q = (
         db.query(Project)
         .options(joinedload(Project.activities))
-        .filter(Project.biweekly_plan_id == plan_id)
-        .order_by(Project.id)
-        .all()
     )
+    if status:
+        q = q.filter(Project.status == status)
+    return q.order_by(Project.id).all()
 
 
 def update_project(db: Session, project_id: int, data: ProjectUpdate) -> Optional[Project]:
@@ -321,7 +391,6 @@ def list_activity_logs(
         joinedload(ActivityLog.activity),
     )
     if log_date:
-        # timestamp stored as "YYYY-MM-DDTHH:MM:SS+05:30" — filter on date prefix
         q = q.filter(ActivityLog.timestamp.like(f"{log_date}%"))
     if project_id:
         q = q.filter(ActivityLog.project_id == project_id)
@@ -405,6 +474,89 @@ def upsert_daily_summary(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ProjectDailyNote CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+def upsert_project_daily_note(
+    db: Session, data: ProjectDailyNoteCreate
+) -> ProjectDailyNote:
+    """Create or update a project daily note (upsert by project_id + date)."""
+    existing = (
+        db.query(ProjectDailyNote)
+        .filter(
+            ProjectDailyNote.project_id == data.project_id,
+            ProjectDailyNote.date == data.date,
+        )
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if existing:
+        existing.what_i_did = data.what_i_did
+        existing.blockers = data.blockers
+        existing.next_steps = data.next_steps
+        if data.plan_id is not None:
+            existing.plan_id = data.plan_id
+        existing.updated_at = now
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    note = ProjectDailyNote(**data.model_dump())
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return note
+
+
+def get_project_daily_note(db: Session, note_id: int) -> Optional[ProjectDailyNote]:
+    return (
+        db.query(ProjectDailyNote)
+        .options(joinedload(ProjectDailyNote.project))
+        .filter(ProjectDailyNote.id == note_id)
+        .first()
+    )
+
+
+def list_project_daily_notes(
+    db: Session,
+    project_id: Optional[int] = None,
+    note_date: Optional[str] = None,
+    plan_id: Optional[int] = None,
+) -> list[ProjectDailyNote]:
+    q = db.query(ProjectDailyNote).options(joinedload(ProjectDailyNote.project))
+    if project_id:
+        q = q.filter(ProjectDailyNote.project_id == project_id)
+    if note_date:
+        q = q.filter(ProjectDailyNote.date == note_date)
+    if plan_id:
+        q = q.filter(ProjectDailyNote.plan_id == plan_id)
+    return q.order_by(ProjectDailyNote.date.desc(), ProjectDailyNote.project_id).all()
+
+
+def update_project_daily_note(
+    db: Session, note_id: int, data: ProjectDailyNoteUpdate
+) -> Optional[ProjectDailyNote]:
+    note = db.query(ProjectDailyNote).filter(ProjectDailyNote.id == note_id).first()
+    if not note:
+        return None
+    for field, value in data.model_dump(exclude_none=True).items():
+        setattr(note, field, value)
+    note.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(note)
+    return note
+
+
+def delete_project_daily_note(db: Session, note_id: int) -> bool:
+    note = db.query(ProjectDailyNote).filter(ProjectDailyNote.id == note_id).first()
+    if not note:
+        return False
+    db.delete(note)
+    db.commit()
+    return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Dashboard aggregation
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -413,34 +565,56 @@ def get_dashboard_data(db: Session) -> dict:
     active_plan = get_active_plan(db)
 
     active_plan_overview = None
-    projects_data = []
+    sprint_activities_data = []
 
     if active_plan:
-        stats = _overall_completion(active_plan.projects)
+        sprint_acts = active_plan.sprint_activities
+        sprint_activity_count = len(sprint_acts)
+        sprint_activities_data = [
+            {
+                "id": sa.id,
+                "plan_id": sa.plan_id,
+                "activity_id": sa.activity_id,
+                "notes": sa.notes,
+                "activity_name": sa.activity.name if sa.activity else "",
+                "project_id": sa.activity.project_id if sa.activity else 0,
+                "project_name": sa.activity.project.name if (sa.activity and sa.activity.project) else "",
+                "created_at": sa.created_at,
+            }
+            for sa in sprint_acts
+        ]
+
+        # Completion = based on sprint activities
+        total_sa = len(sprint_acts)
+        done_sa = sum(1 for sa in sprint_acts if sa.activity and sa.activity.status == "Complete")
+        overall_completion = round((done_sa / total_sa * 100) if total_sa else 0.0, 1)
+
         active_plan_overview = {
             "id": active_plan.id,
             "name": active_plan.name,
             "start_date": active_plan.start_date,
             "end_date": active_plan.end_date,
             "days_remaining": _days_remaining(active_plan.end_date),
-            "projects_count": len(active_plan.projects),
-            "overall_completion": stats,
+            "sprint_activity_count": sprint_activity_count,
+            "overall_completion": overall_completion,
         }
 
-        for project in active_plan.projects:
-            enriched = enrich_project(db, project)
-            projects_data.append({
-                "id": project.id,
-                "biweekly_plan_id": project.biweekly_plan_id,
-                "name": project.name,
-                "description": project.description,
-                "goal": project.goal,
-                "status": project.status,
-                "color_tag": project.color_tag,
-                "created_at": project.created_at,
-                "updated_at": project.updated_at,
-                **enriched,
-            })
+    # All active projects
+    active_projects = list_projects(db, status="Active")
+    projects_data = []
+    for project in active_projects:
+        enriched = enrich_project(db, project)
+        projects_data.append({
+            "id": project.id,
+            "name": project.name,
+            "description": project.description,
+            "goal": project.goal,
+            "status": project.status,
+            "color_tag": project.color_tag,
+            "created_at": project.created_at,
+            "updated_at": project.updated_at,
+            **enriched,
+        })
 
     # Today's activity summary
     today_str = date.today().isoformat()
@@ -459,6 +633,7 @@ def get_dashboard_data(db: Session) -> dict:
     return {
         "active_plan": active_plan_overview,
         "projects": projects_data,
+        "sprint_activities": sprint_activities_data,
         "today_summary": today_summary,
         "daily_summary": daily_summary,
     }

@@ -29,8 +29,19 @@ const BULLET_COLORS: Record<string, string> = {
   patterns:    "text-purple-500",
 }
 
+function itemToString(item: unknown): string {
+  if (typeof item === "string") return item
+  if (item && typeof item === "object") {
+    const o = item as Record<string, unknown>
+    if (o.issue)     return `${o.issue}${o.suggestion ? ` — ${o.suggestion}` : ""}`
+    if (o.next_step) return `${o.project ? `[${o.project}] ` : ""}${o.next_step}${o.rationale ? ` (${o.rationale})` : ""}`
+    return Object.values(o).filter(Boolean).join(" — ")
+  }
+  return String(item)
+}
+
 export default function DailySummaryCard({ summary }: DailySummaryCardProps) {
-  const hasAnySection = SECTIONS.some((s) => summary[s.key].length > 0)
+  const hasAnySection = SECTIONS.some((s) => Array.isArray(summary[s.key]) && summary[s.key].length > 0)
 
   return (
     <Card>
@@ -48,7 +59,7 @@ export default function DailySummaryCard({ summary }: DailySummaryCardProps) {
         {hasAnySection && <Separator />}
 
         {SECTIONS.map(({ key, label, icon: Icon, color }, idx) => {
-          const items = summary[key]
+          const items = Array.isArray(summary[key]) ? summary[key] : []
           if (items.length === 0) return null
           return (
             <div key={key}>
@@ -61,7 +72,7 @@ export default function DailySummaryCard({ summary }: DailySummaryCardProps) {
                 {items.map((item, i) => (
                   <li key={i} className="text-sm flex gap-2 items-start">
                     <span className={`${BULLET_COLORS[key]} mt-0.5`}>•</span>
-                    <span>{item}</span>
+                    <span>{itemToString(item)}</span>
                   </li>
                 ))}
               </ul>

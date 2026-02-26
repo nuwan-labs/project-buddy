@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
-from app.api.helpers import build_plan_detail, build_plan_summary
+from app.api.helpers import build_plan_detail, build_plan_summary, build_sprint_activity
 from app.database import get_db
 
 router = APIRouter(prefix="/biweekly-plans", tags=["Plans"])
@@ -90,7 +90,7 @@ def get_active_plan(db: Session = Depends(get_db)):
 
 @router.get("/{plan_id}")
 def get_plan(plan_id: int, db: Session = Depends(get_db)):
-    """Return a plan with all projects and activities."""
+    """Return a plan with all sprint activities."""
     plan = crud.get_plan(db, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found.")
@@ -124,11 +124,87 @@ def update_plan(
 
 @router.delete("/{plan_id}")
 def delete_plan(plan_id: int, db: Session = Depends(get_db)):
-    """Delete a plan and all its projects, activities, and logs."""
+    """Delete a plan and all its sprint activity mappings and logs."""
     deleted = crud.delete_plan(db, plan_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found.")
     return {"success": True, "message": "Plan deleted successfully."}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sprint Activities
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/{plan_id}/sprint-activities")
+def list_sprint_activities(plan_id: int, db: Session = Depends(get_db)):
+    """List all activities selected for this sprint."""
+    plan = crud.get_plan(db, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found.")
+
+    sprint_acts = crud.list_sprint_activities(db, plan_id)
+    return {
+        "success": True,
+        "data": {
+            "sprint_activities": [build_sprint_activity(sa) for sa in sprint_acts]
+        },
+    }
+
+
+@router.post("/{plan_id}/sprint-activities", status_code=status.HTTP_201_CREATED)
+def add_sprint_activity(
+    plan_id: int,
+    data: schemas.SprintActivityCreate,
+    db: Session = Depends(get_db),
+):
+    """Add an activity to this sprint."""
+    plan = crud.get_plan(db, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found.")
+
+    # Verify activity exists
+    from app.crud import get_activity
+    activity = get_activity(db, data.activity_id)
+    if not activity:
+        raise HTTPException(status_code=404, detail=f"Activity {data.activity_id} not found.")
+
+    # Check duplicate
+    existing = crud.get_sprint_activity(db, plan_id, data.activity_id)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Activity is already in this sprint.",
+        )
+
+    try:
+        sa = crud.add_sprint_activity(db, plan_id, data)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    # Reload with joins
+    sprint_acts = crud.list_sprint_activities(db, plan_id)
+    sa_enriched = next((x for x in sprint_acts if x.id == sa.id), None)
+    return {
+        "success": True,
+        "data": build_sprint_activity(sa_enriched) if sa_enriched else {"id": sa.id},
+        "message": "Activity added to sprint.",
+    }
+
+
+@router.delete("/{plan_id}/sprint-activities/{activity_id}")
+def remove_sprint_activity(
+    plan_id: int,
+    activity_id: int,
+    db: Session = Depends(get_db),
+):
+    """Remove an activity from this sprint."""
+    removed = crud.remove_sprint_activity(db, plan_id, activity_id)
+    if not removed:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Activity {activity_id} not found in plan {plan_id} sprint.",
+        )
+    return {"success": True, "message": "Activity removed from sprint."}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,7 +228,6 @@ def export_excel(plan_id: int, db: Session = Depends(get_db)):
 
     excel_bytes = generate_biweekly_plan_excel(plan, db)
 
-    # Build a safe filename: e.g. Tea_Genome_Plan_2026-02-09_2026-02-20.xlsx
     safe_name = plan.name.replace(" ", "_").replace("/", "-")[:60]
     filename = f"{safe_name}_{plan.start_date}_{plan.end_date}.xlsx"
 

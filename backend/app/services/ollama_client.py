@@ -31,7 +31,7 @@ def check_ollama_health() -> dict:
     try:
         r = requests.get(f"{base}/api/version", timeout=5)
         if r.status_code != 200:
-            return {"available": False, "error": f"HTTP {r.status_code}"}
+            return {"reachable": False, "model": None, "message": f"HTTP {r.status_code}"}
         version = r.json().get("version", "unknown")
 
         r2     = requests.get(f"{base}/api/tags", timeout=5)
@@ -39,16 +39,15 @@ def check_ollama_health() -> dict:
         model_ok = any(settings.ollama_model in m for m in models)
 
         return {
-            "available":    True,
-            "version":      version,
+            "reachable":    True,
             "model":        settings.ollama_model,
             "model_loaded": model_ok,
-            "models":       models,
+            "message":      f"Ollama {version} — model {'loaded' if model_ok else 'not found'}",
         }
     except requests.exceptions.ConnectionError:
-        return {"available": False, "error": "Cannot connect to Ollama"}
+        return {"reachable": False, "model": None, "message": f"Cannot connect to {base}"}
     except Exception as exc:
-        return {"available": False, "error": str(exc)}
+        return {"reachable": False, "model": None, "message": str(exc)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
