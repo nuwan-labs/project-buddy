@@ -18,6 +18,26 @@ Runs entirely on your machine — no cloud, no accounts.
 
 ---
 
+## Screenshots
+
+**Dashboard** — active sprint banner, project cards with progress and hours logged
+
+![Dashboard](screenshots/lab-1.png)
+
+**Projects** — list view with status, activity count, and hours per project
+
+![Projects](screenshots/lab-2.png)
+
+**Biweekly Plans** — sprint management with activity selection and completion tracking
+
+![Plans](screenshots/lab-3.png)
+
+**Settings** — Ollama/DeepSeek connection status and manual AI analysis trigger
+
+![Settings](screenshots/lab-4.png)
+
+---
+
 ## Prerequisites
 
 | Requirement | Version | Notes |
